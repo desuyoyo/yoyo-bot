@@ -52,7 +52,13 @@ player.events.on('error', (queue, error) => {
   console.log(`[Player Error] ${error.message}`);
 });
 player.events.on('playerError', (queue, error) => {
-  console.log(`[Player Error] ${error.message}`);
+  console.log(`[Player Error (Stream)] ${error.message}`);
+});
+player.events.on('debug', (queue, message) => {
+  console.log(`[Player Debug (Queue)] ${message}`);
+});
+player.on('debug', (message) => {
+  console.log(`[Player Debug] ${message}`);
 });
 
 // Глобальная обработка ошибок
