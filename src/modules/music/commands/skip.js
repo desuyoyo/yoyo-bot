@@ -2,7 +2,7 @@
 // Пропускает текущий трек.
 
 const { SlashCommandBuilder } = require('discord.js');
-const { queues, playNext } = require('./play');
+const { useQueue } = require('discord-player');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -10,15 +10,14 @@ module.exports = {
     .setDescription('Пропустить текущий трек'),
 
   async execute(interaction) {
-    const queue = queues.get(interaction.guildId);
+    const queue = useQueue(interaction.guildId);
 
-    if (!queue || queue.songs.length === 0) {
-      return interaction.reply({ content: '❌ Очередь пуста.', ephemeral: true });
+    if (!queue || !queue.currentTrack) {
+      return interaction.reply({ content: '❌ Очередь пуста или ничего не играет.', ephemeral: true });
     }
 
-    const skipped = queue.songs[0];
-    // Остановка плеера вызовет событие Idle → playNext
-    queue.player.stop();
+    const skipped = queue.currentTrack;
+    queue.node.skip();
 
     await interaction.reply(`⏭ Пропущено: **${skipped.title}**`);
   },

@@ -2,7 +2,7 @@
 // Останавливает воспроизведение, очищает очередь и отключает бота.
 
 const { SlashCommandBuilder } = require('discord.js');
-const { queues } = require('./play');
+const { useQueue } = require('discord-player');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -10,24 +10,14 @@ module.exports = {
     .setDescription('Остановить музыку и очистить очередь'),
 
   async execute(interaction) {
-    const queue = queues.get(interaction.guildId);
+    const queue = useQueue(interaction.guildId);
 
     if (!queue) {
       return interaction.reply({ content: '❌ Бот не проигрывает музыку.', ephemeral: true });
     }
 
-    // Очистить всё
-    queue.songs = [];
-    if (queue.idleTimer) {
-      clearTimeout(queue.idleTimer);
-    }
-    if (queue.player) {
-      queue.player.stop(true);
-    }
-    if (queue.connection) {
-      queue.connection.destroy();
-    }
-    queues.delete(interaction.guildId);
+    // Очистить всё и отключиться
+    queue.delete();
 
     await interaction.reply('⏹ Воспроизведение остановлено. Очередь очищена.');
   },
