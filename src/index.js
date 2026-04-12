@@ -3,6 +3,7 @@
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const { Player } = require('discord-player');
 const { DefaultExtractors } = require('@discord-player/extractor');
+const { YoutubeiExtractor } = require('discord-player-youtubei');
 const config = require('./config');
 const { loadCommands } = require('./handlers/commandHandler');
 const { loadEvents } = require('./handlers/eventHandler');
@@ -34,8 +35,11 @@ const player = new Player(client);
 client.player = player;
 
 // Загрузка стандартных экстракторов
+player.extractors.register(YoutubeiExtractor, {}).then(() => {
+  console.log('📺 Экстрактор YouTube загружен!');
+});
 player.extractors.loadMulti(DefaultExtractors).then(() => {
-  console.log('🎵 Экстракторы музыки загружены (YouTube, Spotify, etc.)');
+  console.log('🎵 Экстракторы музыки загружены (Spotify, SoundCloud, etc.)');
 });
 
 // Обработка событий плеера
