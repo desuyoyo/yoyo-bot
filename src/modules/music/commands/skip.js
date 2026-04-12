@@ -12,11 +12,15 @@ module.exports = {
   async execute(interaction) {
     const queue = useQueue(interaction.guildId);
 
-    if (!queue || !queue.currentTrack) {
+    if (!queue) {
       return interaction.reply({ content: '❌ Очередь пуста или ничего не играет.', ephemeral: true });
     }
 
-    const skipped = queue.currentTrack;
+    if (!queue.isPlaying()) {
+      return interaction.reply({ content: '❌ Сейчас ничего не играет.', ephemeral: true });
+    }
+
+    const skipped = queue.currentTrack || queue.current;
     queue.node.skip();
 
     await interaction.reply(`⏭ Пропущено: **${skipped.title}**`);

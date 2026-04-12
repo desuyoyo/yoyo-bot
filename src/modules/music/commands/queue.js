@@ -12,15 +12,20 @@ module.exports = {
   async execute(interaction) {
     const queue = useQueue(interaction.guildId);
 
-    if (!queue || !queue.currentTrack) {
+    if (!queue) {
+      return interaction.reply({ content: '❌ Нет активной сессии воспроизведения.', ephemeral: true });
+    }
+
+    const currentTrack = queue.currentTrack || queue.current;
+
+    if (!currentTrack) {
       return interaction.reply({ content: '📭 Очередь пуста.', ephemeral: true });
     }
 
-    const currentSong = queue.currentTrack;
     const tracks = queue.tracks.toArray();
     const upNext = tracks.slice(0, 10); // Максимум 10 треков из очереди (за исключением текущего)
 
-    let description = `**🎵 Сейчас играет:**\n[${currentSong.title}](${currentSong.url}) — \`${currentSong.duration}\`\n`;
+    let description = `**🎵 Сейчас играет:**\n[${currentTrack.title}](${currentTrack.url}) — \`${currentTrack.duration}\`\n`;
 
     if (upNext.length > 0) {
       description += '\n**📋 Далее в очереди:**\n';
