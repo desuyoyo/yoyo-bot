@@ -45,10 +45,10 @@ module.exports = {
             client: interaction.client,
             requestedBy: interaction.user
           },
-          leaveOnIdle: true,
-          leaveOnIdleCooldown: 300000, // 5 минут
-          leaveOnEmpty: true,
-          leaveOnEmptyCooldown: 300000,
+          // leaveOnIdle: true,
+          // leaveOnIdleCooldown: 300000, // 5 минут
+          // leaveOnEmpty: true,
+          // leaveOnEmptyCooldown: 300000,
         }
       });
 

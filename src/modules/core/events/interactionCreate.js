@@ -17,17 +17,16 @@ module.exports = {
         console.error(`❌ Ошибка в команде /${interaction.commandName}:`, error);
         const reply = { content: '❌ Произошла ошибка при выполнении команды.', ephemeral: true };
         if (interaction.replied || interaction.deferred) {
-          await interaction.followUp(reply).catch(() => {});
+          await interaction.followUp(reply).catch(() => { });
         } else {
-          await interaction.reply(reply).catch(() => {});
+          await interaction.reply(reply).catch(() => { });
         }
       }
       return;
     }
-
-    // ── Кнопки (для модуля ролей) ──
+    // Кнопки
     if (interaction.isButton()) {
-      // Делегируем обработку кнопок модулю ролей
+      // Кнопки ролей
       if (interaction.customId.startsWith('role_give_')) {
         const roleModule = client.commands.get('rolepanel');
         if (roleModule && roleModule.handleButton) {
@@ -35,7 +34,19 @@ module.exports = {
             await roleModule.handleButton(interaction);
           } catch (error) {
             console.error('❌ Ошибка обработки кнопки роли:', error);
-            await interaction.reply({ content: '❌ Ошибка при обработке.', ephemeral: true }).catch(() => {});
+            await interaction.reply({ content: '❌ Ошибка при обработке.', ephemeral: true }).catch(() => { });
+          }
+        }
+      }
+      // Кнопки регистрации
+      if (interaction.customId.startsWith('event_reg:')) {
+        const postModule = client.commands.get('post');
+        if (postModule && postModule.handleButton) {
+          try {
+            await postModule.handleButton(interaction);
+          } catch (error) {
+            console.error('❌ Ошибка обработки кнопки регистрации:', error);
+            await interaction.reply({ content: '❌ Ошибка при обработке.', ephemeral: true }).catch(() => { });
           }
         }
       }
@@ -51,7 +62,22 @@ module.exports = {
             await roleModule.handleSelectMenu(interaction);
           } catch (error) {
             console.error('❌ Ошибка обработки меню ролей:', error);
-            await interaction.reply({ content: '❌ Ошибка при обработке.', ephemeral: true }).catch(() => {});
+            await interaction.reply({ content: '❌ Ошибка при обработке.', ephemeral: true }).catch(() => { });
+          }
+        }
+      }
+    }
+
+    // Modal Submissions
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith('event_submit:')) {
+        const postModule = client.commands.get('post');
+        if (postModule && postModule.handleModalSubmit) {
+          try {
+            await postModule.handleModalSubmit(interaction);
+          } catch (error) {
+            console.error('❌ Ошибка обработки модалки регистрации:', error);
+            await interaction.reply({ content: '❌ Ошибка при обработке.', ephemeral: true }).catch(() => { });
           }
         }
       }
