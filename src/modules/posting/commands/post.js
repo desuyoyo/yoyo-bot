@@ -42,6 +42,11 @@ module.exports = {
           opt.setName('image_url')
             .setDescription('URL изображения для эмбеда')
             .setRequired(false),
+        )
+        .addStringOption((opt) =>
+          opt.setName('mention')
+            .setDescription('Тэг (например, @everyone или ID роли)')
+            .setRequired(false),
         ),
     ),
 
@@ -142,6 +147,7 @@ module.exports = {
       const title = interaction.options.getString('title');
       const fieldsRaw = interaction.options.getString('fields');
       const imageUrl = interaction.options.getString('image_url');
+      const mention = interaction.options.getString('mention');
       const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
 
       if (!title || !fieldsRaw) {
@@ -198,7 +204,11 @@ module.exports = {
         );
 
         try {
-          await targetChannel.send({ embeds: [embed], components: [row] });
+          await targetChannel.send({
+            content: mention ? mention : null,
+            embeds: [embed],
+            components: [row]
+          });
 
           await interaction.followUp({ content: '✅ Пост успешно создан!', ephemeral: true });
         } catch (error) {
