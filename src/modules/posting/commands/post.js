@@ -10,8 +10,8 @@ const {
   PermissionFlagsBits,
   ChannelType,
 } = require('discord.js');
+const regDB = require('../regDB');
 
-// Настройки, они постоянные, поэтому в .env особо смысла нет
 const ALLOWED_ROLES = ['1492503408643674193', '1492547385895948468'];
 const REGISTRATION_LOG_CHANNEL_ID = '1492419554473676820';
 
@@ -48,24 +48,42 @@ module.exports = {
             .setDescription('Тэг (например, @everyone или ID роли)')
             .setRequired(false),
         ),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('migrate')
+        .setDescription('[ADMIN] Мигрировать старые эвенты и заявки в новую базу')
     ),
 
   /**
-   * Обработка кнопки "Зарегистрироваться"
+   * Обработка кнопки "Зарегистрироваться" и "Редактировать заявку"
    */
   async handleButton(interaction) {
-    const rawFields = interaction.customId.replace('event_reg:', '');
-    const fields = rawFields.split('|').filter(Boolean);
+    const eventId = interaction.message.id;
+    const eventData = regDB.getEvent(eventId);
 
-    if (fields.length === 0) {
-      return interaction.reply({ content: '❌ Ошибка: список полей пуст.', ephemeral: true });
+    if (!eventData) {
+      return interaction.reply({ content: '❌ Мероприятие не найдено в базе данных.', ephemeral: true });
+    }
+
+    const userId = interaction.user.id;
+    const existingRegistration = regDB.getRegistration(eventId, userId);
+
+    if (interaction.customId === 'event_reg') {
+      if (existingRegistration) {
+        return interaction.reply({ content: '❌ Вы уже зарегистрированы. Используйте кнопку "Редактировать заявку".', ephemeral: true });
+      }
+    } else if (interaction.customId === 'event_edit') {
+      if (!existingRegistration) {
+        return interaction.reply({ content: '❌ Вы еще не зарегистрировались на это мероприятие.', ephemeral: true });
+      }
     }
 
     const modal = new ModalBuilder()
-      .setCustomId(`event_submit:${rawFields}`)
-      .setTitle('Регистрация на мероприятие');
+      .setCustomId(`event_submit:${eventId}`)
+      .setTitle('Заявка на мероприятие');
 
-    const rows = fields.map((fieldName, index) => {
+    const rows = eventData.fields.map((fieldName, index) => {
       const input = new TextInputBuilder()
         .setCustomId(`field_${index}`)
         .setLabel(fieldName.trim().substring(0, 45))
@@ -75,6 +93,10 @@ module.exports = {
 
       if (fieldName.toLowerCase().includes('себе') || fieldName.toLowerCase().includes('описание')) {
         input.setStyle(TextInputStyle.Paragraph);
+      }
+
+      if (existingRegistration && existingRegistration.answers[fieldName.trim()]) {
+        input.setValue(existingRegistration.answers[fieldName.trim()]);
       }
 
       return new ActionRowBuilder().addComponents(input);
@@ -88,16 +110,21 @@ module.exports = {
    * Обработка отправки формы регистрации
    */
   async handleModalSubmit(interaction) {
-    const rawFields = interaction.customId.replace('event_submit:', '');
-    const fieldNames = rawFields.split('|');
+    const eventId = interaction.customId.replace('event_submit:', '');
+    const eventData = regDB.getEvent(eventId);
 
-    const results = fieldNames.map((name, index) => {
+    if (!eventData) {
+      return interaction.reply({ content: '❌ Мероприятие не найдено.', ephemeral: true });
+    }
+
+    const answers = {};
+    const results = eventData.fields.map((fieldName, index) => {
       const value = interaction.fields.getTextInputValue(`field_${index}`);
-      return { name: name.trim(), value: value.trim() };
+      answers[fieldName.trim()] = value.trim();
+      return { name: fieldName.trim(), value: value.trim() };
     });
 
     const logChannel = interaction.guild.channels.cache.get(REGISTRATION_LOG_CHANNEL_ID);
-
     if (!logChannel) {
       return interaction.reply({
         content: '✅ Ваша заявка принята, но произошла ошибка при уведомлении администрации.',
@@ -105,27 +132,40 @@ module.exports = {
       });
     }
 
-    const eventTitle = interaction.message?.embeds[0]?.title || 'Неизвестное мероприятие';
+    const userId = interaction.user.id;
+    const existingRegistration = regDB.getRegistration(eventId, userId);
 
     const logEmbed = new EmbedBuilder()
       .setColor(0x5865F2)
-      .setTitle('📝 Новая заявка на регистрацию')
+      .setTitle('📝 Заявка на регистрацию')
       .setAuthor({
         name: interaction.user.tag,
         iconURL: interaction.user.displayAvatarURL({ dynamic: true })
       })
-      .setDescription(`Отправлено из: **${eventTitle}**\nПользователь: <@${interaction.user.id}>\nID: \`${interaction.user.id}\``)
+      .setDescription(`Отправлено из: **${eventData.title}**\nПользователь: <@${userId}>\nID: \`${userId}\``)
       .addFields(results.map(f => ({ name: f.name, value: f.value, inline: false })))
       .setTimestamp()
       .setFooter({ text: 'Система регистрации yoyo-bot' });
 
     try {
-      await logChannel.send({ embeds: [logEmbed] });
-      await interaction.reply({
-        content: '✅ Ваша заявка успешно отправлена!',
-        ephemeral: true
-      });
+      if (existingRegistration) {
+        const oldMessageId = existingRegistration.logMessageId;
+        const oldMessage = await logChannel.messages.fetch(oldMessageId).catch(() => null);
+        if (oldMessage) {
+          await oldMessage.edit({ embeds: [logEmbed] });
+        } else {
+          const newMsg = await logChannel.send({ embeds: [logEmbed] });
+          existingRegistration.logMessageId = newMsg.id;
+        }
+        regDB.addRegistration(eventId, userId, existingRegistration.logMessageId, answers);
+        await interaction.reply({ content: '✅ Ваша заявка успешно обновлена!', ephemeral: true });
+      } else {
+        const sentMsg = await logChannel.send({ embeds: [logEmbed] });
+        regDB.addRegistration(eventId, userId, sentMsg.id, answers);
+        await interaction.reply({ content: '✅ Ваша заявка успешно отправлена!', ephemeral: true });
+      }
     } catch (error) {
+      console.error(error);
       await interaction.reply({ content: '❌ Ошибка при отправке заявки.', ephemeral: true });
     }
   },
@@ -167,7 +207,6 @@ module.exports = {
         });
       }
 
-      // Просим прислать описание
       await interaction.reply({
         content: '📝 **Отправьте описание мероприятия следующим сообщением.**\nУ вас есть 5 минут. Пост будет создан автоматически в канале ' + targetChannel.toString(),
         ephemeral: true
@@ -179,7 +218,6 @@ module.exports = {
       collector.on('collect', async (m) => {
         const description = m.content;
 
-        // Попытка удалить сообщение пользователя (нужны права ManageMessages)
         try {
           if (m.deletable) await m.delete();
         } catch { }
@@ -197,20 +235,27 @@ module.exports = {
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(`event_reg:${serializedFields}`)
+            .setCustomId('event_reg')
             .setLabel('Зарегистрироваться')
             .setStyle(ButtonStyle.Success)
             .setEmoji('📝'),
+          new ButtonBuilder()
+            .setCustomId('event_edit')
+            .setLabel('Редактировать заявку')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('✏️')
         );
 
         try {
-          await targetChannel.send({
+          const sentMessage = await targetChannel.send({
             content: mention ? mention : null,
             embeds: [embed],
             components: [row]
           });
 
-          await interaction.followUp({ content: '✅ Пост успешно создан!', ephemeral: true });
+          regDB.createEvent(sentMessage.id, title, fieldsList);
+
+          await interaction.followUp({ content: '✅ Пост успешно создан и добавлен в базу!', ephemeral: true });
         } catch (error) {
           console.error('❌ Ошибка отправки финального поста:', error);
           await interaction.followUp({ content: '❌ Не удалось отправить пост. Проверьте права бота.', ephemeral: true });
@@ -222,6 +267,80 @@ module.exports = {
           interaction.followUp({ content: '⌛ Время вышло. Создание поста отменено.', ephemeral: true }).catch(() => { });
         }
       });
+    } else if (subcommand === 'migrate') {
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        const eventsChannel = await interaction.client.channels.fetch('1492006814462771210');
+        const logsChannel = await interaction.client.channels.fetch(REGISTRATION_LOG_CHANNEL_ID);
+
+        let eventsMigrated = 0;
+        let logsMigrated = 0;
+
+        const eventMessages = await eventsChannel.messages.fetch({ limit: 100 });
+        for (const [id, msg] of eventMessages) {
+          if (msg.author.id !== interaction.client.user.id) continue;
+          if (!msg.components || msg.components.length === 0) continue;
+
+          const button = msg.components[0].components[0];
+          if (button && button.customId && button.customId.startsWith('event_reg:')) {
+            const rawFields = button.customId.replace('event_reg:', '');
+            const fields = rawFields.split('|').filter(Boolean);
+            const title = msg.embeds[0]?.title || 'Неизвестное мероприятие';
+
+            regDB.createEvent(msg.id, title, fields);
+
+            const newRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId('event_reg')
+                .setLabel('Зарегистрироваться')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('📝'),
+              new ButtonBuilder()
+                .setCustomId('event_edit')
+                .setLabel('Редактировать заявку')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('✏️')
+            );
+            await msg.edit({ components: [newRow] });
+            eventsMigrated++;
+          }
+        }
+
+        const logMessages = await logsChannel.messages.fetch({ limit: 100 });
+        const sortedLogs = Array.from(logMessages.values()).reverse();
+
+        for (const msg of sortedLogs) {
+          if (msg.author.id !== interaction.client.user.id) continue;
+          if (!msg.embeds || msg.embeds.length === 0) continue;
+
+          const embed = msg.embeds[0];
+          const desc = embed.description || '';
+          
+          const titleMatch = desc.match(/Отправлено из: \*\*(.+?)\*\*/);
+          const eventTitle = titleMatch ? titleMatch[1] : null;
+
+          const idMatch = desc.match(/ID: `(.+?)`/);
+          const userId = idMatch ? idMatch[1] : null;
+
+          if (eventTitle && userId) {
+            const eventData = regDB.findEventByTitle(eventTitle);
+            if (eventData) {
+              const answers = {};
+              embed.fields.forEach(f => {
+                answers[f.name] = f.value;
+              });
+              regDB.addRegistration(eventData.messageId, userId, msg.id, answers);
+              logsMigrated++;
+            }
+          }
+        }
+
+        await interaction.editReply(`✅ **Миграция завершена!**\nОбновлено эвентов: ${eventsMigrated}\nИмпортировано заявок: ${logsMigrated}`);
+
+      } catch (err) {
+        console.error('Ошибка миграции:', err);
+        await interaction.editReply('❌ Ошибка во время миграции: ' + err.message);
+      }
     }
   },
 };

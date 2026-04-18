@@ -38,8 +38,8 @@ module.exports = {
           }
         }
       }
-      // Кнопки регистрации
-      if (interaction.customId.startsWith('event_reg:')) {
+      // Кнопки регистрации и редактирования
+      if (interaction.customId.startsWith('event_reg') || interaction.customId === 'event_edit') {
         const postModule = client.commands.get('post');
         if (postModule && postModule.handleButton) {
           try {
