@@ -53,6 +53,31 @@ module.exports = {
       sub
         .setName('migrate')
         .setDescription('[ADMIN] Мигрировать старые эвенты и заявки в новую базу')
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('reschedule')
+        .setDescription('Перенести мероприятие')
+        .addStringOption((opt) =>
+          opt.setName('message_id')
+            .setDescription('ID сообщения с эвентом')
+            .setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt.setName('new_date')
+            .setDescription('Новая дата/время переноса (напр. Завтра в 18:00)')
+            .setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt.setName('reason')
+            .setDescription('Причина переноса')
+            .setRequired(true)
+        )
+        .addChannelOption((opt) =>
+          opt.setName('channel')
+            .setDescription('Канал, где находится сообщение (по умолчанию текущий)')
+            .addChannelTypes(ChannelType.GuildText)
+        )
     ),
 
   /**
@@ -315,7 +340,7 @@ module.exports = {
 
           const embed = msg.embeds[0];
           const desc = embed.description || '';
-          
+
           const titleMatch = desc.match(/Отправлено из: \*\*(.+?)\*\*/);
           const eventTitle = titleMatch ? titleMatch[1] : null;
 
@@ -340,6 +365,52 @@ module.exports = {
       } catch (err) {
         console.error('Ошибка миграции:', err);
         await interaction.editReply('❌ Ошибка во время миграции: ' + err.message);
+      }
+    } else if (subcommand === 'reschedule') {
+      await interaction.deferReply({ ephemeral: true });
+      const messageId = interaction.options.getString('message_id');
+      const newDate = interaction.options.getString('new_date');
+      const reason = interaction.options.getString('reason');
+      const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+
+      try {
+        const message = await targetChannel.messages.fetch(messageId);
+        if (!message) {
+          return interaction.editReply('❌ Сообщение не найдено.');
+        }
+
+        const eventData = regDB.getEvent(messageId);
+        if (!eventData) {
+          return interaction.editReply('❌ Это сообщение не является эвентом в базе данных.');
+        }
+
+        const originalEmbed = message.embeds[0];
+        if (!originalEmbed) {
+          return interaction.editReply('❌ Эмбед в сообщении не найден.');
+        }
+
+        const updatedEmbed = EmbedBuilder.from(originalEmbed)
+          .setColor(0xFFA500)
+          .addFields(
+            { name: '⚠️ ВНИМАНИЕ: МЕРОПРИЯТИЕ ПЕРЕНЕСЕНО', value: `**Новая дата:** ${newDate}\n**Причина:** ${reason}`, inline: false }
+          );
+
+        // Обновляем сообщение эвента
+        await message.edit({ embeds: [updatedEmbed] });
+
+        const announcementEmbed = new EmbedBuilder()
+          .setColor(0xFFA500)
+          .setTitle(`⚠️ Перенос: ${eventData.title}`)
+          .setDescription(`Мероприятие было перенесено!\n\n**Новая дата:** ${newDate}\n**Причина:** ${reason}\n\n[Перейти к посту с эвентом](${message.url})`)
+          .setTimestamp();
+
+        await targetChannel.send({ embeds: [announcementEmbed] });
+
+        await interaction.editReply('✅ Мероприятие успешно перенесено! Сообщение обновлено и отправлено уведомление.');
+
+      } catch (error) {
+        console.error('Ошибка при переносе эвента:', error);
+        await interaction.editReply('❌ Ошибка при попытке перенести эвент. Проверьте правильность ID сообщения и выбранного канала.');
       }
     }
   },
