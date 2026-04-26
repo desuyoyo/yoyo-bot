@@ -46,6 +46,14 @@ class RegDB {
     return this.data[messageId] || null;
   }
 
+  cancelEvent(messageId, reason) {
+    if (!this.data[messageId]) return false;
+    this.data[messageId].cancelled = true;
+    this.data[messageId].cancelReason = reason;
+    this.save();
+    return true;
+  }
+
   findEventByTitle(title) {
     for (const [msgId, eventData] of Object.entries(this.data)) {
       if (eventData.title === title) {

@@ -78,6 +78,26 @@ module.exports = {
             .setDescription('Канал, где находится сообщение (по умолчанию текущий)')
             .addChannelTypes(ChannelType.GuildText)
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('cancel')
+        .setDescription('Отменить мероприятие')
+        .addStringOption((opt) =>
+          opt.setName('message_id')
+            .setDescription('ID сообщения с эвентом')
+            .setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt.setName('reason')
+            .setDescription('Причина отмены')
+            .setRequired(true)
+        )
+        .addChannelOption((opt) =>
+          opt.setName('channel')
+            .setDescription('Канал, где находится сообщение (по умолчанию текущий)')
+            .addChannelTypes(ChannelType.GuildText)
+        )
     ),
 
   /**
@@ -89,6 +109,13 @@ module.exports = {
 
     if (!eventData) {
       return interaction.reply({ content: '❌ Мероприятие не найдено в базе данных.', ephemeral: true });
+    }
+
+    if (eventData.cancelled) {
+      return interaction.reply({
+        content: `🚫 Это мероприятие было отменено и регистрация закрыта.\n**Причина:** ${eventData.cancelReason}`,
+        ephemeral: true
+      });
     }
 
     const userId = interaction.user.id;
@@ -411,6 +438,75 @@ module.exports = {
       } catch (error) {
         console.error('Ошибка при переносе эвента:', error);
         await interaction.editReply('❌ Ошибка при попытке перенести эвент. Проверьте правильность ID сообщения и выбранного канала.');
+      }
+    } else if (subcommand === 'cancel') {
+      await interaction.deferReply({ ephemeral: true });
+      const messageId = interaction.options.getString('message_id');
+      const reason = interaction.options.getString('reason');
+      const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+
+      try {
+        const message = await targetChannel.messages.fetch(messageId);
+        if (!message) {
+          return interaction.editReply('❌ Сообщение не найдено.');
+        }
+
+        const eventData = regDB.getEvent(messageId);
+        if (!eventData) {
+          return interaction.editReply('❌ Это сообщение не является эвентом в базе данных.');
+        }
+
+        if (eventData.cancelled) {
+          return interaction.editReply('❌ Это мероприятие уже отменено.');
+        }
+
+        const originalEmbed = message.embeds[0];
+        if (!originalEmbed) {
+          return interaction.editReply('❌ Эмбед в сообщении не найден.');
+        }
+
+        // Помечаем эвент как отменённый в базе
+        regDB.cancelEvent(messageId, reason);
+
+        // Обновляем эмбед: красный цвет + поле об отмене
+        const updatedEmbed = EmbedBuilder.from(originalEmbed)
+          .setColor(0xFF3333)
+          .addFields(
+            { name: '🚫 МЕРОПРИЯТИЕ ОТМЕНЕНО', value: `**Причина:** ${reason}`, inline: false }
+          );
+
+        // Дизейблим обе кнопки
+        const disabledRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('event_reg')
+            .setLabel('Зарегистрироваться')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('📝')
+            .setDisabled(true),
+          new ButtonBuilder()
+            .setCustomId('event_edit')
+            .setLabel('Редактировать заявку')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('✏️')
+            .setDisabled(true)
+        );
+
+        await message.edit({ embeds: [updatedEmbed], components: [disabledRow] });
+
+        // Анонс об отмене в канал эвента
+        const announcementEmbed = new EmbedBuilder()
+          .setColor(0xFF3333)
+          .setTitle(`🚫 Отмена: ${eventData.title}`)
+          .setDescription(`Мероприятие было отменено.\n\n**Причина:** ${reason}\n\n[Перейти к посту](${message.url})`)
+          .setTimestamp();
+
+        await targetChannel.send({ embeds: [announcementEmbed] });
+
+        await interaction.editReply('✅ Мероприятие успешно отменено. Сообщение обновлено и отправлено уведомление.');
+
+      } catch (error) {
+        console.error('Ошибка при отмене эвента:', error);
+        await interaction.editReply('❌ Ошибка при попытке отменить эвент. Проверьте правильность ID сообщения и выбранного канала.');
       }
     }
   },
