@@ -98,6 +98,21 @@ module.exports = {
             .setDescription('Канал, где находится сообщение (по умолчанию текущий)')
             .addChannelTypes(ChannelType.GuildText)
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('uncancel')
+        .setDescription('Снять отмену мероприятия (восстановить регистрацию)')
+        .addStringOption((opt) =>
+          opt.setName('message_id')
+            .setDescription('ID сообщения с эвентом')
+            .setRequired(true)
+        )
+        .addChannelOption((opt) =>
+          opt.setName('channel')
+            .setDescription('Канал, где находится сообщение (по умолчанию текущий)')
+            .addChannelTypes(ChannelType.GuildText)
+        )
     ),
 
   /**
@@ -456,10 +471,6 @@ module.exports = {
           return interaction.editReply('❌ Это сообщение не является эвентом в базе данных.');
         }
 
-        if (eventData.cancelled) {
-          return interaction.editReply('❌ Это мероприятие уже отменено.');
-        }
-
         const originalEmbed = message.embeds[0];
         if (!originalEmbed) {
           return interaction.editReply('❌ Эмбед в сообщении не найден.');
@@ -507,6 +518,62 @@ module.exports = {
       } catch (error) {
         console.error('Ошибка при отмене эвента:', error);
         await interaction.editReply('❌ Ошибка при попытке отменить эвент. Проверьте правильность ID сообщения и выбранного канала.');
+      }
+    } else if (subcommand === 'uncancel') {
+      await interaction.deferReply({ ephemeral: true });
+      const messageId = interaction.options.getString('message_id');
+      const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+
+      try {
+        const eventData = regDB.getEvent(messageId);
+        if (!eventData) {
+          return interaction.editReply('❌ Это сообщение не является эвентом в базе данных.');
+        }
+
+        if (!eventData.cancelled) {
+          return interaction.editReply('❌ Это мероприятие не было отменено.');
+        }
+
+        regDB.uncancelEvent(messageId);
+
+        try {
+          const message = await targetChannel.messages.fetch(messageId);
+          const originalEmbed = message.embeds[0];
+
+          if (originalEmbed) {
+            const fields = (originalEmbed.fields || []).filter(
+              (f) => f.name !== '🚫 МЕРОПРИЯТИЕ ОТМЕНЕНО'
+            );
+            const restoredEmbed = EmbedBuilder.from(originalEmbed)
+              .setColor(0xFFFFFF)
+              .setFields(fields);
+
+            const restoredRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId('event_reg')
+                .setLabel('Зарегистрироваться')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('📝')
+                .setDisabled(false),
+              new ButtonBuilder()
+                .setCustomId('event_edit')
+                .setLabel('Редактировать заявку')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('✏️')
+                .setDisabled(false)
+            );
+
+            await message.edit({ embeds: [restoredEmbed], components: [restoredRow] });
+          }
+        } catch {
+          // Сообщение удалено - ничего страшного, "БД" уже обновлена
+        }
+
+        await interaction.editReply('✅ Отмена снята. Регистрация на мероприятие снова открыта.');
+
+      } catch (error) {
+        console.error('Ошибка при снятии отмены эвента:', error);
+        await interaction.editReply('❌ Ошибка при попытке снять отмену. Проверьте правильность ID сообщения.');
       }
     }
   },
